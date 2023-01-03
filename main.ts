@@ -1,13 +1,13 @@
-import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting } from 'obsidian';
+import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting, Menu, Command, requestUrl } from 'obsidian';
 
 // Remember to rename these classes and interfaces!
 
 interface MyPluginSettings {
-	mySetting: string;
+	vlcPassword: string;
 }
 
 const DEFAULT_SETTINGS: MyPluginSettings = {
-	mySetting: 'default'
+	vlcPassword: ''
 }
 
 export default class MyPlugin extends Plugin {
@@ -15,7 +15,7 @@ export default class MyPlugin extends Plugin {
 
 	async onload() {
 		await this.loadSettings();
-
+		/*
 		// This creates an icon in the left ribbon.
 		const ribbonIconEl = this.addRibbonIcon('dice', 'Sample Plugin', (evt: MouseEvent) => {
 			// Called when the user clicks the icon.
@@ -64,10 +64,12 @@ export default class MyPlugin extends Plugin {
 				}
 			}
 		});
+		*/
 
 		// This adds a settings tab so the user can configure various aspects of the plugin
-		this.addSettingTab(new SampleSettingTab(this.app, this));
+		this.addSettingTab(new VLCControlSettingTab(this.app, this));
 
+		/*
 		// If the plugin hooks up any global DOM events (on parts of the app that doesn't belong to this plugin)
 		// Using this function will automatically remove the event listener when this plugin is disabled.
 		this.registerDomEvent(document, 'click', (evt: MouseEvent) => {
@@ -76,6 +78,51 @@ export default class MyPlugin extends Plugin {
 
 		// When registering intervals, this function will automatically clear the interval when the plugin is disabled.
 		this.registerInterval(window.setInterval(() => console.log('setInterval'), 5 * 60 * 1000));
+		*/
+
+		this.registerEvent(
+			this.app.workspace.on("editor-menu", (menu, editor, view) => {
+			  const e = view.editor;
+			  if(!e) return;
+			  const sel = e.getSelection();
+			  const title = "Seek VLC to " + ( sel|| '');
+			  menu.addItem((item) => {
+				item
+				  .setTitle( title )
+				  .setIcon("chevrons-right")
+				  .onClick(() => this.onSeekClick());
+			  });
+	  
+			})
+		  );
+	}
+
+	onSeekClick(){
+		let view = this.app.workspace.getActiveViewOfType(MarkdownView);
+		if( !view ) return;
+		let slection = view.editor.getSelection();
+		
+		const reTs = /([0-9]+):([0-9]+).[0-9]+/;
+		if( reTs.test( slection ) ){
+			
+			const matches = slection.match( reTs );
+			if(!matches) return;
+
+			const mm = matches[1];
+			const ss = matches[2];
+			const url = `http://127.0.0.1:8080/requests/status.xml?command=seek&val=${mm}M:${ss}S`;
+
+			new Notice( url );
+			console.log( url );
+			
+			let headers = {'Authorization': 'Basic ' + Buffer.from(":vetinari").toString('base64')};
+			//let headers = { "Authorization": "Basic OnZldGluYXJp" };
+
+			requestUrl({
+				url, 
+				headers
+			});
+		}
 	}
 
 	onunload() {
@@ -107,7 +154,7 @@ class SampleModal extends Modal {
 	}
 }
 
-class SampleSettingTab extends PluginSettingTab {
+class VLCControlSettingTab extends PluginSettingTab {
 	plugin: MyPlugin;
 
 	constructor(app: App, plugin: MyPlugin) {
@@ -123,14 +170,14 @@ class SampleSettingTab extends PluginSettingTab {
 		containerEl.createEl('h2', {text: 'Settings for my awesome plugin.'});
 
 		new Setting(containerEl)
-			.setName('Setting #1')
-			.setDesc('It\'s a secret')
+			.setName('VLC password')
+			.setDesc('Password for HTTP access to VLC')
 			.addText(text => text
-				.setPlaceholder('Enter your secret')
-				.setValue(this.plugin.settings.mySetting)
+				.setPlaceholder('Enter your password')
+				.setValue(this.plugin.settings.vlcPassword)
 				.onChange(async (value) => {
 					console.log('Secret: ' + value);
-					this.plugin.settings.mySetting = value;
+					this.plugin.settings.vlcPassword = value;
 					await this.plugin.saveSettings();
 				}));
 	}
