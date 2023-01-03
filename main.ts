@@ -1,13 +1,20 @@
 import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting, Menu, Command, requestUrl } from 'obsidian';
+import { threadId } from 'worker_threads';
 
 // Remember to rename these classes and interfaces!
 
 interface MyPluginSettings {
 	vlcPassword: string;
+	vlcHost: string;
+	vlcPort: string;
+	forcePlayOnSeek: boolean;
 }
 
 const DEFAULT_SETTINGS: MyPluginSettings = {
-	vlcPassword: ''
+	vlcPassword: '',
+	vlcHost: 'http://127.0.0.1',
+	vlcPort: '8080',
+	forcePlayOnSeek: true
 }
 
 export default class MyPlugin extends Plugin {
@@ -97,31 +104,65 @@ export default class MyPlugin extends Plugin {
 		  );
 	}
 
+	constructVLCUrl( command: string, params?: any ){
+		
+		const vlcHost = this.settings.vlcHost;
+		const vlcPort = this.settings.vlcPort;
+		
+		const p = new URLSearchParams();
+
+		if( params ){
+			for( const k in params ){
+				p.append( k, params[k] )
+			}
+		}
+
+		p.append( 'command', command );
+		const q = p.toString();
+
+		return `${vlcHost}:${vlcPort}/requests/status.xml?${q}`;
+	}
+
+	makeVLCRequest( command: string, params?: object ){
+		
+		const url = this.constructVLCUrl( command, params );
+
+		const vlcPassword = this.settings.vlcPassword;
+		const headers = {'Authorization': 'Basic ' + Buffer.from(`:${vlcPassword}`).toString('base64')};
+
+		console.log( url );
+
+		requestUrl({
+			url, 
+			headers
+		});
+	}
+
 	onSeekClick(){
 		let view = this.app.workspace.getActiveViewOfType(MarkdownView);
 		if( !view ) return;
-		let slection = view.editor.getSelection();
+		let sel = view.editor.getSelection();
 		
+		// regexp to match timestamps in transcript timestamp, uses groups to match minutes and seconds
 		const reTs = /([0-9]+):([0-9]+).[0-9]+/;
-		if( reTs.test( slection ) ){
+		if( reTs.test( sel ) ){
 			
-			const matches = slection.match( reTs );
-			if(!matches) return;
+			const matches = sel.match( reTs );
+			if(!matches) return;	// bail if there aren't any matches
 
-			const mm = matches[1];
-			const ss = matches[2];
-			const url = `http://127.0.0.1:8080/requests/status.xml?command=seek&val=${mm}M:${ss}S`;
+			const mm = matches[1];  // minutes in transcript timestamp
+			const ss = matches[2];	// seconds in transctipt timestap
 
-			new Notice( url );
-			console.log( url );
+			const params = {
+				'val' : `${mm}M:${ss}S`
+			}
 			
-			let headers = {'Authorization': 'Basic ' + Buffer.from(":vetinari").toString('base64')};
-			//let headers = { "Authorization": "Basic OnZldGluYXJp" };
+			this.makeVLCRequest( 'seek', params );
 
-			requestUrl({
-				url, 
-				headers
-			});
+			if( this.settings.forcePlayOnSeek ){
+				this.makeVLCRequest( 'pl_forceresume' );
+			}
+				
 		}
 	}
 
@@ -167,17 +208,50 @@ class VLCControlSettingTab extends PluginSettingTab {
 
 		containerEl.empty();
 
-		containerEl.createEl('h2', {text: 'Settings for my awesome plugin.'});
+		containerEl.createEl('h2', {text: 'Settings for VLC connection'});
 
 		new Setting(containerEl)
 			.setName('VLC password')
-			.setDesc('Password for HTTP access to VLC')
+			.setDesc('HTTP password')
 			.addText(text => text
 				.setPlaceholder('Enter your password')
 				.setValue(this.plugin.settings.vlcPassword)
 				.onChange(async (value) => {
-					console.log('Secret: ' + value);
 					this.plugin.settings.vlcPassword = value;
+					await this.plugin.saveSettings();
+				}));
+		
+		new Setting(containerEl)
+			.setName('VLC HTTP address')
+			.setDesc('URL for VLC HTTP interface, e.g http://127.0.0.1')
+			.addText(text => text
+				.setPlaceholder( 'VLC host URL' )
+				.setValue( this.plugin.settings.vlcHost )
+				.onChange( async (value) => {
+					this.plugin.settings.vlcHost = value;
+					await this.plugin.saveSettings();
+				}));
+		
+		new Setting(containerEl)
+			.setName('VLC HTTP port')
+			.setDesc('Port for VLC HTTP interface, e.g 8080')
+			.addText(text => text
+				.setPlaceholder( 'VLC host port' )
+				.setValue( this.plugin.settings.vlcPort )
+				.onChange( async (value) => {
+					this.plugin.settings.vlcPort = value;
+					await this.plugin.saveSettings();
+				}));
+		
+		containerEl.createEl('h2', {text: 'Playback behaviour'});
+
+		new Setting(containerEl)
+			.setName('Force play on seek')
+			.setDesc('Always start playback after seeking')
+			.addToggle( toggle => toggle
+				.setValue( this.plugin.settings.forcePlayOnSeek )
+				.onChange(async (value) => {
+					this.plugin.settings.forcePlayOnSeek = value;
 					await this.plugin.saveSettings();
 				}));
 	}
