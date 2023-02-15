@@ -17,8 +17,8 @@ const DEFAULT_SETTINGS: VLCControlSettings = {
 	forcePlayOnSeek: true
 }
 
-// regexp to match timestamps in transcript timestamp, uses groups to match minutes and seconds
-const reTs = /([0-9]+):([0-9]+).[0-9]+/;
+// regexp to match timestamps in transcript timestamp, uses groups to match minutes, seconds and ms
+const reTs = /((?<hours>[0-9]+):)?(?<minutes>[0-9]+):(?<seconds>[0-9]+)\.([0-9]+)/;
 
 
 export default class VLCControlPlugin extends Plugin {
@@ -82,8 +82,6 @@ export default class VLCControlPlugin extends Plugin {
 		const vlcPassword = this.settings.vlcPassword;
 		const headers = {'Authorization': 'Basic ' + Buffer.from(`:${vlcPassword}`).toString('base64')};
 
-		console.log( url );
-
 		requestUrl({
 			url, 
 			headers
@@ -100,14 +98,23 @@ export default class VLCControlPlugin extends Plugin {
 		// check that there's a timestamp in the selection
 		if( reTs.test( sel ) ){
 			
-			const matches = sel.match( reTs );
-			if(!matches) return;	// bail if there aren't any matches
+			const matched = sel.match( reTs );
+			const groups = matched?.groups || null;
+			
+			if(!groups) return;	// bail if there aren't any matches
+			
+			const hh = groups.hours || null;
+			const mm = groups.minutes || null;  // minutes in transcript timestamp
+			const ss = groups.seconds || null;	// seconds in transcript timestamp
 
-			const mm = matches[1];  // minutes in transcript timestamp
-			const ss = matches[2];	// seconds in transctipt timestap
+			let val = `${mm}M:${ss}S`;	// timestamp to send to VLC, see https://code.videolan.org/videolan/vlc-3.0/-/tree/3.0.9.1/share/lua/http/requests
+
+			if(hh != null){
+				val = `${hh}H:${val}`; // stick hours at the beginning of the VLC timestamp if we have them
+			}
 
 			const params = {
-				'val' : `${mm}M:${ss}S`
+				'val' : val
 			}
 			
 			this.makeVLCRequest( 'seek', params );
@@ -129,22 +136,6 @@ export default class VLCControlPlugin extends Plugin {
 
 	async saveSettings() {
 		await this.saveData(this.settings);
-	}
-}
-
-class SampleModal extends Modal {
-	constructor(app: App) {
-		super(app);
-	}
-
-	onOpen() {
-		const {contentEl} = this;
-		contentEl.setText('Woah!');
-	}
-
-	onClose() {
-		const {contentEl} = this;
-		contentEl.empty();
 	}
 }
 
